@@ -4,18 +4,17 @@ import {
   Alert,
   FlatList,
   StyleSheet,
-  Switch,
   Text,
   View,
+  Modal,
+  TextInput,
+  Button,
 } from 'react-native';
 import db from '../../db';
 import {
   collection,
   getDocs,
-  doc,
-  updateDoc,
-  query,
-  orderBy,
+  addDoc,
 } from 'firebase/firestore';
 
 type Niño = {
@@ -29,6 +28,10 @@ type Niño = {
 export default function PagosScreen() {
   const [ninos, setNinos] = useState<Niño[]>([]);
   const [cargando, setCargando] = useState(true);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [monto, setMonto] = useState('');
+  const [mes, setMes] = useState('');
+  const [actual, setActual] = useState<Niño | null>(null);
 
   useEffect(() => {
     obtenerNinos();
@@ -36,13 +39,13 @@ export default function PagosScreen() {
 
   const obtenerNinos = async () => {
     try {
-      const q = query(collection(db, 'ninos'), orderBy('apellido'));
-      const querySnapshot = await getDocs(q);
+      const querySnapshot = await getDocs(collection(db, 'ninos'));
       const datos = querySnapshot.docs.map((d) => ({
         id: d.id,
         ...(d.data() as Omit<Niño, 'id' | 'pago'>),
-        pago: (d.data() as any).pagado === true,
+        pago: false,
       }));
+      datos.sort((a, b) => a.curso.localeCompare(b.curso));
       setNinos(datos);
     } catch (error) {
       console.error('Error al obtener datos:', error);
@@ -51,17 +54,22 @@ export default function PagosScreen() {
     }
   };
 
-  const actualizarPago = async (id: string, valor: boolean) => {
+  const registrarPago = async () => {
+    if (!actual) return;
     try {
-      await updateDoc(doc(db, 'ninos', id), { pagado: valor });
-      setNinos((prev) =>
-        prev.map((nino) =>
-          nino.id === id ? { ...nino, pago: valor } : nino
-        )
-      );
+      await addDoc(collection(db, 'pagos'), {
+        ninoId: actual.id,
+        mes,
+        monto: parseFloat(monto),
+      });
+      setModalVisible(false);
+      setMonto('');
+      setMes('');
+      setActual(null);
+      Alert.alert('Pago registrado');
     } catch (error) {
-      console.error('Error al actualizar el pago:', error);
-      Alert.alert('Error', 'No se pudo actualizar el estado de pago.');
+      console.error('Error al registrar el pago:', error);
+      Alert.alert('Error', 'No se pudo registrar el pago');
     }
   };
 
@@ -71,10 +79,7 @@ export default function PagosScreen() {
         <Text style={styles.nombre}>{item.nombre} {item.apellido}</Text>
         <Text style={styles.curso}>{item.curso}</Text>
       </View>
-      <Switch
-        value={item.pago}
-        onValueChange={(value) => actualizarPago(item.id, value)}
-      />
+      <Button title="Registrar" onPress={() => {setActual(item); setModalVisible(true);}} />
     </View>
   );
 
@@ -96,6 +101,28 @@ export default function PagosScreen() {
           <Text style={styles.empty}>No hay niños registrados.</Text>
         }
       />
+      <Modal visible={modalVisible} animationType="slide" transparent>
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Registrar Pago</Text>
+            <TextInput
+              placeholder="Mes (YYYY-MM)"
+              value={mes}
+              onChangeText={setMes}
+              style={styles.input}
+            />
+            <TextInput
+              placeholder="Monto"
+              keyboardType="numeric"
+              value={monto}
+              onChangeText={setMonto}
+              style={styles.input}
+            />
+            <Button title="Guardar" onPress={registrarPago} />
+            <Button title="Cancelar" onPress={() => setModalVisible(false)} />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -124,5 +151,25 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    padding: 20,
+    borderRadius: 12,
+    width: '80%',
+  },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 10,
   },
 });
