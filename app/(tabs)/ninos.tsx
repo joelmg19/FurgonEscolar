@@ -17,8 +17,7 @@ import {
   collection,
   addDoc,
   getDocs,
-  query,
-  orderBy,
+  updateDoc,
 } from 'firebase/firestore';
 
 type Niño = {
@@ -26,6 +25,7 @@ type Niño = {
   nombre: string;
   apellido: string;
   curso: string;
+  qrId?: string;
 };
 
 const cursosDisponibles = [
@@ -48,12 +48,12 @@ export default function NinosScreen() {
 
   const obtenerNinos = async () => {
     try {
-      const q = query(collection(db, 'ninos'), orderBy('apellido'));
-      const querySnapshot = await getDocs(q);
+      const querySnapshot = await getDocs(collection(db, 'ninos'));
       const data = querySnapshot.docs.map((d) => ({
         id: d.id,
         ...(d.data() as Omit<Niño, 'id'>),
       }));
+      data.sort((a, b) => a.curso.localeCompare(b.curso));
       setNinos(data);
     } catch (error) {
       console.error('Error al obtener niños:', error);
@@ -67,7 +67,7 @@ export default function NinosScreen() {
     }
 
     try {
-      await addDoc(collection(db, 'ninos'), {
+      const docRef = await addDoc(collection(db, 'ninos'), {
         nombre,
         apellido,
         curso,
@@ -75,6 +75,7 @@ export default function NinosScreen() {
         presente: false,
         pagado: false,
       });
+      await updateDoc(docRef, { qrId: docRef.id });
 
       setNombre('');
       setApellido('');
@@ -90,6 +91,7 @@ export default function NinosScreen() {
     <View style={styles.item}>
       <Text style={styles.nombre}>{item.nombre} {item.apellido}</Text>
       <Text style={styles.curso}>{item.curso}</Text>
+      <Text style={styles.codigo}>Código: {item.qrId || item.id}</Text>
     </View>
   );
 
@@ -153,6 +155,7 @@ const styles = StyleSheet.create({
   },
   nombre: { fontSize: 16, fontWeight: 'bold' },
   curso: { fontSize: 14, color: '#666' },
+  codigo: { fontSize: 12, color: '#333' },
   empty: { textAlign: 'center', marginTop: 20, color: '#999' },
   botonAgregar: {
     position: 'absolute',

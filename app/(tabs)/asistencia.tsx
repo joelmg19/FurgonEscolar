@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, StyleSheet, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, StyleSheet, Text, View, Button, TextInput } from 'react-native';
 import db from '../../db';
 import {
   collection,
   getDocs,
+  getDoc,
+  setDoc,
   doc,
-  updateDoc,
 } from 'firebase/firestore';
 
 
@@ -21,16 +22,25 @@ type Niño = {
 export default function AsistenciaScreen() {
   const [ninos, setNinos] = useState<Niño[]>([]);
   const [cargando, setCargando] = useState(true);
+  const [fecha, setFecha] = useState(new Date());
+  const [codigo, setCodigo] = useState('');
 
   useEffect(() => {
     const cargarNinos = async () => {
+      setCargando(true);
       try {
+        const fechaStr = fecha.toISOString().split('T')[0];
         const querySnapshot = await getDocs(collection(db, 'ninos'));
-        const data = querySnapshot.docs.map((d) => ({
-          id: d.id,
-          ...(d.data() as Omit<Niño, 'id'>),
-          presente: (d.data() as any).presente === true,
-        }));
+        const data: Niño[] = [];
+        for (const d of querySnapshot.docs) {
+          let presente = false;
+          const asis = await getDoc(doc(db, 'asistencias', `${d.id}_${fechaStr}`));
+          if (asis.exists()) {
+            presente = asis.data().presente === true;
+          }
+          data.push({ id: d.id, ...(d.data() as Omit<Niño, 'id' | 'presente'>), presente });
+        }
+        data.sort((a, b) => a.curso.localeCompare(b.curso));
         setNinos(data);
       } catch (error) {
         console.error('Error al obtener los niños:', error);
@@ -40,18 +50,26 @@ export default function AsistenciaScreen() {
     };
 
     cargarNinos();
-  }, []);
+  }, [fecha]);
 
   const actualizarPresente = async (id: string, value: boolean) => {
+    const fechaStr = fecha.toISOString().split('T')[0];
     try {
-      await updateDoc(doc(db, 'ninos', id), { presente: value });
-      const actualizados = ninos.map((niño) =>
-        niño.id === id ? { ...niño, presente: value } : niño
-      );
-      setNinos(actualizados);
+      await setDoc(doc(db, 'asistencias', `${id}_${fechaStr}`), {
+        ninoId: id,
+        fecha: fechaStr,
+        presente: value,
+      });
+      setNinos((prev) => prev.map((n) => n.id === id ? { ...n, presente: value } : n));
     } catch (error) {
       console.error('Error al actualizar asistencia:', error);
     }
+  };
+
+  const registrarPorCodigo = async () => {
+    if (!codigo.trim()) return;
+    await actualizarPresente(codigo.trim(), true);
+    setCodigo('');
   };
 
   const renderItem = ({ item }: { item: Niño }) => (
@@ -60,9 +78,9 @@ export default function AsistenciaScreen() {
         <Text style={styles.nombre}>{item.nombre} {item.apellido}</Text>
         <Text style={styles.curso}>{item.curso}</Text>
       </View>
-      <Switch
-        value={item.presente}
-        onValueChange={(value) => actualizarPresente(item.id, value)}
+      <Button
+        title={item.presente ? 'Presente' : 'Marcar'}
+        onPress={() => actualizarPresente(item.id, !item.presente)}
       />
     </View>
   );
@@ -77,6 +95,20 @@ export default function AsistenciaScreen() {
 
   return (
     <View style={styles.container}>
+      <TextInput
+        style={styles.input}
+        value={fecha.toISOString().split('T')[0]}
+        onChangeText={(t) => setFecha(new Date(t))}
+      />
+      <View style={styles.codigoRow}>
+        <TextInput
+          placeholder="Código"
+          value={codigo}
+          onChangeText={setCodigo}
+          style={[styles.input, { flex: 1 }]}
+        />
+        <Button title="Registrar" onPress={registrarPorCodigo} />
+      </View>
       <FlatList
         data={ninos}
         keyExtractor={(item) => item.id}
@@ -111,5 +143,18 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 8,
+  },
+  codigoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 8,
   },
 });
